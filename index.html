@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Basket Hoops — Space to Jump</title>
+  <style>
+    html,body { height:100%; margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    body { display:flex; align-items:center; justify-content:center; background: linear-gradient(#bfe9ff, #cfefff 60%); } /* soft sky */
+    #game {
+      width: 800px;
+      height: 600px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+      border-radius: 12px;
+      overflow:hidden;
+      background: #87ceeb; /* sky blue fallback */
+      position: relative;
+    }
+    canvas { display:block; width:100%; height:100%; background: linear-gradient(#87ceeb, #cfeeff 70%); }
+    .credits {
+      position:absolute; left:8px; bottom:8px; color:#055; font-size:12px; opacity:0.9;
+    }
+  </style>
+</head>
+<body>
+  <div id="game" role="application" aria-label="Basket Hoops game">
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <div class="credits">Space = jump • Press Space to restart after Game Over</div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Game variables
+  let running = true;
+  let gameOver = false;
+  let score = 0;
+  let frame = 0;
+
+  // Ball (orange basketball)
+  const ball = {
+    x: 180,
+    y: H/2,
+    radius: 18,
+    vy: 0,
+    gravity: 0.7,
+    jumpPower: -11,
+    maxVy: 12
+  };
+
+  // Hoop list (coming from right to left)
+  const hoops = [];
+  const hoopGap = 150; // gap size
+  const hoopWidth = 24; // thickness of the hoop (pink)
+  const hoopSpacing = 230; // horizontal spacing between hoops
+  const hoopSpeedStart = 3.0;
+  let hoopSpeed = hoopSpeedStart;
+
+  // Controls
+  let spacePressed = false;
+
+  // Colors
+  const colors = {
+    skyTop: '#87ceeb',
+    skyBottom: '#cfeeff',
+    hoopPink: '#ff90d0',
+    ballOrange: '#ff8c00',
+    gameOverBlue: '#022b6d',
+    scoreColor: '#05386b'
+  };
+
+  // Start with some hoops
+  function spawnInitialHoops() {
+    for (let i = 0; i < 4; i++) {
+      const x = W + i * hoopSpacing + 200;
+      spawnHoop(x);
+    }
+  }
+
+  function spawnHoop(x) {
+    // Random vertical center for the gap, but keep some margins
+    const gapCenterMin = 120;
+    const gapCenterMax = H - 120;
+    const gapCenter = Math.max(gapCenterMin, Math.min(gapCenterMax, randRange(140, H-140)));
+
+    // Each hoop represented as {x, gapY, passed}
+    hoops.push({ x, gapY: gapCenter, passed: false });
+  }
+
+  function randRange(a,b) { return a + Math.random()*(b-a); }
+
+  // Collision detection between ball and hoop "bars"
+  function checkCollision(hoop) {
+    // Hoop has top bar from y=0 to gapTop, and bottom bar from gapBottom to H,
+    // each with thickness hoopWidth, but visually we'll draw rounded pipes.
+    const gapTop = hoop.gapY - hoopGap/2;
+    const gapBottom = hoop.gapY + hoopGap/2;
+
+    // horizontal range of hoop's solid bars:
+    const left = hoop.x - 28;  // approximate front edge
+    const right = hoop.x + 28; // approximate back edge
+
+    // If ball is horizontally overlapping the solid bar region...
+    if (ball.x + ball.radius > left && ball.x - ball.radius < right) {
+      // if ball center is above gapTop or below gapBottom it's a collision
+      if (ball.y - ball.radius < gapTop || ball.y + ball.radius > gapBottom) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Draw a hoop as a pink ring with a gap (we draw as top/bottom columns with rounded edges)
+  function drawHoop(hoop) {
+    const x = hoop.x;
+    const gapTop = hoop.gapY - hoopGap/2;
+    const gapBottom = hoop.gapY + hoopGap/2;
+    const pipeW = 28;
+
+    // top pipe
+    roundedRect(ctx, x - pipeW/2, -2, pipeW, gapTop + pipeW, 12);
+    // bottom pipe
+    roundedRect(ctx, x - pipeW/2, gapBottom - pipeW/2, pipeW, H - (gapBottom - pipeW/2) + 2, 12);
+
+    // Add narrow inner darker rim to make it look more ring-like
+    ctx.save();
+    ctx.translate(0,0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = colors.hoopPink;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // helper to draw rounded rects (filled)
+  function roundedRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+    ctx.fillStyle = colors.hoopPink;
+    ctx.fill();
+  }
+
+  // draw the orange basketball
+  function drawBall() {
+    ctx.save();
+    // ball body
+    ctx.beginPath();
+    ctx.fillStyle = colors.ballOrange;
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2);
+    ctx.fill();
+    // subtle shading
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.arc(ball.x - 6, ball.y - 8, ball.radius*0.5, 0, Math.PI*2);
+    ctx.fill();
+    // lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(ball.x - ball.radius/1.6, ball.y);
+    ctx.quadraticCurveTo(ball.x, ball.y + 4, ball.x + ball.radius/1.6, ball.y);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // draw a moving background strip to give sense of forward motion
+  function drawBackground() {
+    // subtle moving stripes or clouds
+    ctx.save();
+    // sky gradient
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0, '#87ceeb');
+    g.addColorStop(1, '#cfeeff');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // moving cloud stripes
+    const speed = hoopSpeed * 0.35;
+    const offset = (frame * speed) % 200;
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#ffffff';
+    for (let i = -1; i < 6; i++) {
+      const cx = ((i*200) + offset*1.2) % (W + 200) - 100;
+      ctx.beginPath();
+      ctx.ellipse(cx, 80 + 20*Math.sin(i), 70, 20, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function update() {
+    if (!running) return;
+
+    frame++;
+
+    if (!gameOver) {
+      // Ball physics
+      ball.vy += ball.gravity;
+      if (ball.vy > ball.maxVy) ball.vy = ball.maxVy;
+      ball.y += ball.vy;
+
+      // Prevent ball from leaving top or bottom
+      if (ball.y - ball.radius < 0) { ball.y = ball.radius; ball.vy = 0; }
+      if (ball.y + ball.radius > H) { ball.y = H - ball.radius; ball.vy = 0; gameOver = true; }
+
+      // Move hoops
+      for (let i = hoops.length - 1; i >= 0; i--) {
+        const h = hoops[i];
+        h.x -= hoopSpeed;
+
+        // Score when we've passed a hoop center
+        if (!h.passed && h.x + 28 < ball.x - ball.radius) {
+          h.passed = true;
+          score++;
+          // gradually increase difficulty
+          if (score % 4 === 0) hoopSpeed += 0.25;
+        }
+
+        // Collision check
+        if (checkCollision(h)) {
+          gameOver = true;
+        }
+
+        // Remove off-screen hoops
+        if (h.x + 200 < 0) {
+          hoops.splice(i,1);
+        }
+      }
+
+      // Keep enough hoops in play
+      if (hoops.length < 4) {
+        const lastX = hoops.length ? hoops[hoops.length-1].x : W;
+        spawnHoop(lastX + hoopSpacing + randRange(-40,80));
+      }
+    }
+  }
+
+  function draw() {
+    // background
+    drawBackground();
+
+    // draw hoops
+    for (const h of hoops) {
+      drawHoop(h);
+    }
+
+    // draw ball
+    drawBall();
+
+    // score
+    ctx.save();
+    ctx.fillStyle = colors.scoreColor;
+    ctx.font = '24px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto';
+    ctx.textAlign = 'left';
+    ctx.fillText('Score: ' + score, 14, 32);
+    ctx.restore();
+
+    // On game over display big text
+    if (gameOver) {
+      ctx.save();
+      ctx.fillStyle = colors.gameOverBlue;
+      ctx.font = 'bold 64px system-ui, "Segoe UI", Roboto, Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('GAME OVER', W/2, H/2 - 10);
+      ctx.font = '20px system-ui, "Segoe UI", Roboto, Arial';
+      ctx.fillText('Press SPACE to play again', W/2, H/2 + 28);
+      ctx.restore();
+    }
+  }
+
+  // main loop
+  function loop() {
+    update();
+    // clear
+    ctx.clearRect(0,0,W,H);
+    draw();
+    if (running) requestAnimationFrame(loop);
+  }
+
+  // Input handling: space to jump; when gameover, space restarts
+  function onSpace() {
+    if (gameOver) {
+      // reset game
+      score = 0;
+      hoopSpeed = hoopSpeedStart;
+      hoops.length = 0;
+      spawnInitialHoops();
+      ball.y = H/2;
+      ball.vy = 0;
+      gameOver = false;
+      frame = 0;
+      return;
+    }
+    // normal jump
+    ball.vy = ball.jumpPower;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (!spacePressed) {
+        spacePressed = true;
+        onSpace();
+      }
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      spacePressed = false;
+    }
+  });
+
+  // Mouse or touch also allowed: click/tap to jump
+  canvas.addEventListener('mousedown', (e) => {
+    onSpace();
+  });
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    onSpace();
+  }, { passive:false });
+
+  // initialize
+  spawnInitialHoops();
+  loop();
+
+  // Expose for debugging (optional)
+  window.__game = { hoops, ball };
+})();
+</script>
+</body>
+</html>
