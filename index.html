@@ -1,344 +1,219 @@
+
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Basket Hoops — Space to Jump</title>
+  <title>Little Yellow Bird — Pink Poles</title>
   <style>
-    html,body { height:100%; margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
-    body { display:flex; align-items:center; justify-content:center; background: linear-gradient(#bfe9ff, #cfefff 60%); } /* soft sky */
-    #game {
-      width: 800px;
-      height: 600px;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.2);
-      border-radius: 12px;
-      overflow:hidden;
-      background: #87ceeb; /* sky blue fallback */
-      position: relative;
-    }
-    canvas { display:block; width:100%; height:100%; background: linear-gradient(#87ceeb, #cfeeff 70%); }
-    .credits {
-      position:absolute; left:8px; bottom:8px; color:#055; font-size:12px; opacity:0.9;
-    }
+    html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#bfe9ff}
+    #gameWrap{display:flex;align-items:center;justify-content:center;height:100vh}
+    canvas{border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.18)}
+
+    .controls{position:fixed;left:16px;bottom:16px;background:rgba(255,255,255,0.9);padding:10px;border-radius:8px;font-size:14px}
+    .controls b{display:block}
   </style>
 </head>
 <body>
-  <div id="game" role="application" aria-label="Basket Hoops game">
-    <canvas id="canvas" width="800" height="600"></canvas>
-    <div class="credits">Space = jump • Press Space to restart after Game Over</div>
+  <div id="gameWrap">
+    <canvas id="game" width="800" height="500" aria-label="Little Yellow Bird game"></canvas>
   </div>
 
-<script>
-(() => {
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
+  <div class="controls">
+    <b>Controls</b>
+    Space / Click / Tap — flap
+  </div>
 
-  const W = canvas.width;
-  const H = canvas.height;
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width; const H = canvas.height;
 
-  // Game variables
-  let running = true;
-  let gameOver = false;
-  let score = 0;
-  let frame = 0;
+    let bird, pipes, frame, speed, bgOffset, gameOver, score, highScore;
 
-  // Ball (orange basketball)
-  const ball = {
-    x: 180,
-    y: H/2,
-    radius: 18,
-    vy: 0,
-    gravity: 0.7,
-    jumpPower: -11,
-    maxVy: 12
-  };
+    const pipeWidth = 60;
+    const gapSize = 150;
 
-  // Hoop list (coming from right to left)
-  const hoops = [];
-  const hoopGap = 150; // gap size
-  const hoopWidth = 24; // thickness of the hoop (pink)
-  const hoopSpacing = 230; // horizontal spacing between hoops
-  const hoopSpeedStart = 3.0;
-  let hoopSpeed = hoopSpeedStart;
+    const birdColor = '#ffd800';
+    const pipeColor = '#ff8fcf';
+    const skyTop = '#bfe9ff';
 
-  // Controls
-  let spacePressed = false;
-
-  // Colors
-  const colors = {
-    skyTop: '#87ceeb',
-    skyBottom: '#cfeeff',
-    hoopPink: '#ff90d0',
-    ballOrange: '#ff8c00',
-    gameOverBlue: '#022b6d',
-    scoreColor: '#05386b'
-  };
-
-  // Start with some hoops
-  function spawnInitialHoops() {
-    for (let i = 0; i < 4; i++) {
-      const x = W + i * hoopSpacing + 200;
-      spawnHoop(x);
+    function resetGame(){
+      bird = { x: 120, y: H/2, w: 34, h: 24, vy:0, gravity:0.55, flapPower:-9 };
+      pipes = [];
+      frame = 0;
+      speed = 2.6;
+      bgOffset = 0;
+      gameOver = false;
+      score = 0;
+      spawnPipe();
     }
-  }
 
-  function spawnHoop(x) {
-    // Random vertical center for the gap, but keep some margins
-    const gapCenterMin = 120;
-    const gapCenterMax = H - 120;
-    const gapCenter = Math.max(gapCenterMin, Math.min(gapCenterMax, randRange(140, H-140)));
+    function spawnPipe(){
+      const minTop = 30;
+      const maxTop = H - gapSize - 30;
+      const topHeight = Math.floor(Math.random() * (maxTop - minTop + 1)) + minTop;
+      const pipe = { x: W + 20, top: topHeight, passed: false };
+      pipes.push(pipe);
+    }
 
-    // Each hoop represented as {x, gapY, passed}
-    hoops.push({ x, gapY: gapCenter, passed: false });
-  }
+    function flap(){
+      if(gameOver){
+        resetGame();
+        return;
+      }
+      bird.vy = bird.flapPower;
+    }
 
-  function randRange(a,b) { return a + Math.random()*(b-a); }
+    window.addEventListener('keydown', e => { if(e.code === 'Space') { e.preventDefault(); flap(); } });
+    canvas.addEventListener('mousedown', flap);
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); flap(); }, {passive:false});
 
-  // Collision detection between ball and hoop "bars"
-  function checkCollision(hoop) {
-    // Hoop has top bar from y=0 to gapTop, and bottom bar from gapBottom to H,
-    // each with thickness hoopWidth, but visually we'll draw rounded pipes.
-    const gapTop = hoop.gapY - hoopGap/2;
-    const gapBottom = hoop.gapY + hoopGap/2;
+    function collides(pipe){
+      const bx1 = bird.x - bird.w/2; const bx2 = bird.x + bird.w/2;
+      const by1 = bird.y - bird.h/2; const by2 = bird.y + bird.h/2;
+      const px1 = pipe.x; const px2 = pipe.x + pipeWidth;
+      const topY2 = pipe.top;
+      const botY1 = pipe.top + gapSize;
+      const overlapX = !(bx2 < px1 || bx1 > px2);
+      const hitTop = overlapX && by1 < topY2;
+      const hitBottom = overlapX && by2 > botY1;
+      return hitTop || hitBottom;
+    }
 
-    // horizontal range of hoop's solid bars:
-    const left = hoop.x - 28;  // approximate front edge
-    const right = hoop.x + 28; // approximate back edge
+    function update(){
+      if(gameOver) return;
+      frame++;
+      bgOffset = (bgOffset - speed*0.4) % W;
 
-    // If ball is horizontally overlapping the solid bar region...
-    if (ball.x + ball.radius > left && ball.x - ball.radius < right) {
-      // if ball center is above gapTop or below gapBottom it's a collision
-      if (ball.y - ball.radius < gapTop || ball.y + ball.radius > gapBottom) {
-        return true;
+      bird.vy += bird.gravity;
+      bird.y += bird.vy;
+
+      if(bird.y - bird.h/2 < 0){ bird.y = bird.h/2; bird.vy = 0; }
+      if(bird.y + bird.h/2 > H){ bird.y = H - bird.h/2; bird.vy = 0; gameOver = true; }
+
+      if(frame % 110 === 0) spawnPipe();
+
+      for(let i = pipes.length-1; i>=0; i--){
+        const p = pipes[i];
+        p.x -= speed;
+        if(!p.passed && p.x + pipeWidth < bird.x - bird.w/2){ p.passed = true; score++; }
+        if(collides(p)) { gameOver = true; }
+        if(p.x + pipeWidth < -50) pipes.splice(i,1);
+      }
+
+      if(gameOver){
+        if(highScore === undefined) highScore = score;
+        else highScore = Math.max(highScore, score);
       }
     }
-    return false;
-  }
 
-  // Draw a hoop as a pink ring with a gap (we draw as top/bottom columns with rounded edges)
-  function drawHoop(hoop) {
-    const x = hoop.x;
-    const gapTop = hoop.gapY - hoopGap/2;
-    const gapBottom = hoop.gapY + hoopGap/2;
-    const pipeW = 28;
+    function drawBackground(){
+      const g = ctx.createLinearGradient(0,0,0,H);
+      g.addColorStop(0, skyTop);
+      g.addColorStop(1, '#e9f9ff');
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,W,H);
 
-    // top pipe
-    roundedRect(ctx, x - pipeW/2, -2, pipeW, gapTop + pipeW, 12);
-    // bottom pipe
-    roundedRect(ctx, x - pipeW/2, gapBottom - pipeW/2, pipeW, H - (gapBottom - pipeW/2) + 2, 12);
-
-    // Add narrow inner darker rim to make it look more ring-like
-    ctx.save();
-    ctx.translate(0,0);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = colors.hoopPink;
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // helper to draw rounded rects (filled)
-  function roundedRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + r, r);
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.arcTo(x, y + h, x, y + h - r, r);
-    ctx.arcTo(x, y, x + r, y, r);
-    ctx.closePath();
-    ctx.fillStyle = colors.hoopPink;
-    ctx.fill();
-  }
-
-  // draw the orange basketball
-  function drawBall() {
-    ctx.save();
-    // ball body
-    ctx.beginPath();
-    ctx.fillStyle = colors.ballOrange;
-    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2);
-    ctx.fill();
-    // subtle shading
-    ctx.beginPath();
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.arc(ball.x - 6, ball.y - 8, ball.radius*0.5, 0, Math.PI*2);
-    ctx.fill();
-    // lines
-    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(ball.x - ball.radius/1.6, ball.y);
-    ctx.quadraticCurveTo(ball.x, ball.y + 4, ball.x + ball.radius/1.6, ball.y);
-    ctx.stroke();
-
-    ctx.restore();
-  }
-
-  // draw a moving background strip to give sense of forward motion
-  function drawBackground() {
-    // subtle moving stripes or clouds
-    ctx.save();
-    // sky gradient
-    const g = ctx.createLinearGradient(0,0,0,H);
-    g.addColorStop(0, '#87ceeb');
-    g.addColorStop(1, '#cfeeff');
-    ctx.fillStyle = g;
-    ctx.fillRect(0,0,W,H);
-
-    // moving cloud stripes
-    const speed = hoopSpeed * 0.35;
-    const offset = (frame * speed) % 200;
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = '#ffffff';
-    for (let i = -1; i < 6; i++) {
-      const cx = ((i*200) + offset*1.2) % (W + 200) - 100;
+      const cloudCount = 5;
+      for(let i=0;i<cloudCount;i++){
+        const cx = ((i*260 + bgOffset*0.6) % (W+300)) - 150;
+        const cy = 50 + (i%3)*40;
+        drawCloud(cx, cy, 60 + (i%3)*12);
+      }
+    }
+    function drawCloud(x,y,size){
       ctx.beginPath();
-      ctx.ellipse(cx, 80 + 20*Math.sin(i), 70, 20, 0, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.arc(x,y,size*0.5,0,Math.PI*2);
+      ctx.arc(x+size*0.45,y-size*0.1,size*0.35,0,Math.PI*2);
+      ctx.arc(x-size*0.45,y-size*0.12,size*0.38,0,Math.PI*2);
       ctx.fill();
     }
-    ctx.globalAlpha = 1;
-    ctx.restore();
-  }
 
-  function update() {
-    if (!running) return;
-
-    frame++;
-
-    if (!gameOver) {
-      // Ball physics
-      ball.vy += ball.gravity;
-      if (ball.vy > ball.maxVy) ball.vy = ball.maxVy;
-      ball.y += ball.vy;
-
-      // Prevent ball from leaving top or bottom
-      if (ball.y - ball.radius < 0) { ball.y = ball.radius; ball.vy = 0; }
-      if (ball.y + ball.radius > H) { ball.y = H - ball.radius; ball.vy = 0; gameOver = true; }
-
-      // Move hoops
-      for (let i = hoops.length - 1; i >= 0; i--) {
-        const h = hoops[i];
-        h.x -= hoopSpeed;
-
-        // Score when we've passed a hoop center
-        if (!h.passed && h.x + 28 < ball.x - ball.radius) {
-          h.passed = true;
-          score++;
-          // gradually increase difficulty
-          if (score % 4 === 0) hoopSpeed += 0.25;
-        }
-
-        // Collision check
-        if (checkCollision(h)) {
-          gameOver = true;
-        }
-
-        // Remove off-screen hoops
-        if (h.x + 200 < 0) {
-          hoops.splice(i,1);
-        }
-      }
-
-      // Keep enough hoops in play
-      if (hoops.length < 4) {
-        const lastX = hoops.length ? hoops[hoops.length-1].x : W;
-        spawnHoop(lastX + hoopSpacing + randRange(-40,80));
+    function drawPipes(){
+      ctx.fillStyle = pipeColor;
+      for(const p of pipes){
+        ctx.fillRect(Math.round(p.x), 0, pipeWidth, Math.round(p.top));
+        ctx.fillRect(Math.round(p.x), Math.round(p.top + gapSize), pipeWidth, H - (p.top + gapSize));
+        ctx.fillStyle = '#ff74b3';
+        ctx.fillRect(Math.round(p.x)-2, Math.round(p.top)-6, pipeWidth+4, 6);
+        ctx.fillRect(Math.round(p.x)-2, Math.round(p.top + gapSize), pipeWidth+4, 6);
+        ctx.fillStyle = pipeColor;
       }
     }
-  }
 
-  function draw() {
-    // background
-    drawBackground();
-
-    // draw hoops
-    for (const h of hoops) {
-      drawHoop(h);
-    }
-
-    // draw ball
-    drawBall();
-
-    // score
-    ctx.save();
-    ctx.fillStyle = colors.scoreColor;
-    ctx.font = '24px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto';
-    ctx.textAlign = 'left';
-    ctx.fillText('Score: ' + score, 14, 32);
-    ctx.restore();
-
-    // On game over display big text
-    if (gameOver) {
+    function drawBird(){
+      const cx = bird.x; const cy = bird.y;
       ctx.save();
-      ctx.fillStyle = colors.gameOverBlue;
-      ctx.font = 'bold 64px system-ui, "Segoe UI", Roboto, Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('GAME OVER', W/2, H/2 - 10);
-      ctx.font = '20px system-ui, "Segoe UI", Roboto, Arial';
-      ctx.fillText('Press SPACE to play again', W/2, H/2 + 28);
+      ctx.translate(cx, cy);
+      const angle = Math.max(-0.6, Math.min(0.8, bird.vy * 0.03));
+      ctx.rotate(angle);
+
+      ctx.beginPath();
+      ctx.ellipse(0,0,bird.w/2,bird.h/2,0,0,Math.PI*2);
+      ctx.fillStyle = birdColor;
+      ctx.fill();
+
+      ctx.beginPath(); ctx.arc(6,-3,3,0,Math.PI*2); ctx.fillStyle='#000'; ctx.fill();
+      ctx.beginPath(); ctx.arc(7,-3,1.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+
+      ctx.beginPath(); ctx.moveTo(-2,4); ctx.lineTo(10,2); ctx.lineTo(-2,0); ctx.closePath(); ctx.fillStyle='#ffb84d'; ctx.fill();
+
+      ctx.beginPath(); ctx.ellipse(-4,3,6,3,-0.6,0,Math.PI*2); ctx.fillStyle='#ffdb4d'; ctx.fill();
       ctx.restore();
     }
-  }
 
-  // main loop
-  function loop() {
-    update();
-    // clear
-    ctx.clearRect(0,0,W,H);
-    draw();
-    if (running) requestAnimationFrame(loop);
-  }
-
-  // Input handling: space to jump; when gameover, space restarts
-  function onSpace() {
-    if (gameOver) {
-      // reset game
-      score = 0;
-      hoopSpeed = hoopSpeedStart;
-      hoops.length = 0;
-      spawnInitialHoops();
-      ball.y = H/2;
-      ball.vy = 0;
-      gameOver = false;
-      frame = 0;
-      return;
+    function drawScore(){
+      ctx.fillStyle = '#036';
+      ctx.font = '22px system-ui, Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText('Score: ' + score, 14, 28);
     }
-    // normal jump
-    ball.vy = ball.jumpPower;
-  }
 
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space') {
-      e.preventDefault();
-      if (!spacePressed) {
-        spacePressed = true;
-        onSpace();
+    function drawGameOver(){
+      if(!gameOver) return;
+      ctx.fillStyle = '#0074e8';
+      ctx.font = 'bold 56px system-ui, Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Game Over', W/2, H/2 - 30);
+
+      ctx.font = '22px system-ui, Arial';
+      ctx.fillText('Your Score: ' + score, W/2, H/2 + 10);
+      if(highScore !== undefined){
+        ctx.fillText('High Score: ' + highScore, W/2, H/2 + 40);
       }
+      ctx.font = '18px system-ui, Arial';
+      ctx.fillText('Press Space to Restart', W/2, H/2 + 70);
     }
-  });
 
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space') {
-      e.preventDefault();
-      spacePressed = false;
+    function loop(){
+      update();
+      drawBackground();
+      drawPipes();
+      drawBird();
+      drawScore();
+      drawGameOver();
+      requestAnimationFrame(loop);
     }
-  });
 
-  // Mouse or touch also allowed: click/tap to jump
-  canvas.addEventListener('mousedown', (e) => {
-    onSpace();
-  });
-  canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    onSpace();
-  }, { passive:false });
+    resetGame();
+    loop();
 
-  // initialize
-  spawnInitialHoops();
-  loop();
+    function resizeCanvas(){
+      const maxW = Math.min(920, window.innerWidth - 40);
+      const scale = Math.min(maxW / 800, (window.innerHeight - 120) / 500);
+      const cssW = Math.round(800 * scale);
+      const cssH = Math.round(500 * scale);
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
 
-  // Expose for debugging (optional)
-  window.__game = { hoops, ball };
-})();
-</script>
+    canvas.tabIndex = 0;
+    canvas.style.outline = 'none';
+    canvas.addEventListener('keydown', e => { if(e.code==='Space') flap(); });
+  </script>
 </body>
 </html>
